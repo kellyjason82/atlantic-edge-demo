@@ -120,6 +120,26 @@
   .size { font-weight: 700; white-space: nowrap; }
   .card-text { margin: 0; font-weight: 600; }
 
+  /* Rebook cards: colour stripe AND a text label, never colour alone */
+  .card-red   { border-color: var(--red);  box-shadow: inset 10px 0 0 var(--red);  padding-left: 24px; }
+  .card-amber { border-color: #b86e00;     box-shadow: inset 10px 0 0 #e09000;     padding-left: 24px; }
+  .who { font-size: 26px; font-weight: 900; line-height: 1.2; }
+  .chip-amber { background: var(--amber-bg); border-color: var(--amber); color: var(--amber); }
+  .chip-new   { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+  .move-label { margin: 4px 0 -4px; font-weight: 800; }
+  .moves { display: grid; gap: 10px; }
+  .legend { font-size: 18px; margin: 0 0 16px; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 10px; }
+
+  /* Message after a move, shown just above the tab bar */
+  .toast {
+    position: fixed; left: 12px; right: 12px; z-index: 15;
+    bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 10px);
+    max-width: 616px; margin: 0 auto; padding: 14px 16px;
+    background: var(--ok); color: #fff; font-weight: 800; border-radius: 12px;
+    pointer-events: none; /* never blocks a tap underneath */
+  }
+  .toast[hidden] { display: none; }
+
   /* Demo aid banner – clearly not part of the app */
   .demo-banner {
     display: grid; gap: 4px; margin: 0 0 16px; padding: 12px 14px;
@@ -159,6 +179,8 @@
   <button class="tab" type="button" data-action="tab" data-view="rebook" id="tab-rebook">Rebook</button>
   <button class="tab" type="button" data-action="tab" data-view="money" id="tab-money">Money</button>
 </nav>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <div class="sheet-backdrop" id="sheet" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
@@ -433,8 +455,61 @@ function renderToday() {
   $("today-body").innerHTML = html;
 }
 
+function fmtSlot(s) {
+  const [y, m, d] = s.date.split("-").map(Number);
+  const day = new Date(y, m - 1, d).toLocaleDateString("en-IE", { weekday: "short", day: "numeric", month: "short" });
+  return day + " · " + s.time;
+}
+function fmtWait(hours) {
+  if (hours < 1) return "under 1 hour";
+  const days = Math.floor(hours / 24), h = Math.floor(hours % 24);
+  return days ? plural(days, "day", "days") + (h ? " " + plural(h, "hour", "hours") : "") : plural(h, "hour", "hours");
+}
+const FLAG_CHIP = {
+  red:   `<span class="chip chip-red">OVER 48H</span>`,
+  amber: `<span class="chip chip-amber">OVER 24H</span>`,
+  new:   `<span class="chip chip-new">NEW</span>`
+};
+
+function rebookCard(b, now) {
+  const flag = ageFlag(b, now);
+  const from = findSession(state, b.fromSessionId);
+  const options = suggestions(state, b, now);
+  const moves = options.length
+    ? `<p class="move-label">Move to:</p><div class="moves">${options.map(s =>
+        `<button class="btn btn-primary" type="button" data-action="move" data-booking="${b.id}" data-session="${s.id}">${esc(fmtSlot(s))} · ${freePlaces(state, s)} free</button>`
+      ).join("")}</div>`
+    : `<p class="card-text">No session in the next 14 days has room for ${plural(b.size, "person", "people")}.</p>`;
+  return `<article class="card${flag === "new" ? "" : " card-" + flag}">
+    <div class="card-head"><span class="who">${esc(b.name)}</span>${FLAG_CHIP[flag]}</div>
+    <p class="card-text">Group of ${b.size}${from ? " · was " + esc(fmtSlot(from)) : ""}<br>Waiting ${fmtWait(hoursWaiting(b, now))}</p>
+    <a class="btn" href="tel:${b.phone.replace(/\s/g, "")}">Call ${esc(b.phone)}</a>
+    ${moves}</article>`;
+}
+
 function renderRebook() {
-  $("rebook-body").innerHTML = `<p class="lead">${waiting(state).length} bookings waiting. (Rebook cards come in a later step.)</p>`;
+  const now = new Date();
+  const list = waiting(state);
+  if (!list.length) {
+    $("rebook-body").innerHTML = `<p class="lead">Nothing to rebook. All caught up.</p>
+      <button class="btn" type="button" data-action="tab" data-view="today">Go to Today</button>`;
+    return;
+  }
+  const red = list.filter(b => ageFlag(b, now) === "red").length;
+  const amber = list.filter(b => ageFlag(b, now) === "amber").length;
+  $("rebook-body").innerHTML =
+    `<p class="lead">${plural(list.length, "booking", "bookings")} waiting · ${red} over 48h · ${amber} over 24h. Oldest first.</p>
+     <p class="legend"><strong>Red</strong> = waiting over 48 hours (case rule).<br><strong>Amber</strong> = over 24 hours (our assumption).</p>` +
+    list.map(b => rebookCard(b, now)).join("");
+}
+
+let toastTimer = null;
+function showToast(text) {
+  const t = $("toast");
+  t.textContent = text;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
 }
 
 function renderMoney() {
@@ -494,6 +569,18 @@ document.addEventListener("click", e => {
         "No, keep the session");
       break;
     }
+    case "move": {
+      const b = state.bookings.find(x => x.id === el.dataset.booking);
+      const s = findSession(state, el.dataset.session);
+      if (b && s && rebook(state, b.id, s.id, new Date())) {
+        save(state);
+        showToast("Moved " + b.name + " (" + plural(b.size, "person", "people") + ") to " + fmtSlot(s));
+      } else {
+        showToast("That session no longer has room. Pick another.");
+      }
+      render();
+      break;
+    }
     case "reset":
       openSheet("Reset demo data?",
         "All changes are undone and the sample data starts fresh from today.",
@@ -514,6 +601,8 @@ document.addEventListener("click", e => {
 });
 
 render();
+// Redraw every minute so red/amber flags and "started" sessions stay current.
+setInterval(() => { if ($("sheet").hidden) render(); }, 60 * 1000);
 </script>
 </body>
 </html>
