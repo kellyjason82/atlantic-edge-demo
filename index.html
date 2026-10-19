@@ -80,7 +80,8 @@
   .tab {
     min-height: calc(var(--tabbar) - 12px);
     border: 0; border-radius: 10px; background: #2b2b2b; color: #fff;
-    font-weight: 800; font-size: 20px; cursor: pointer;
+    font-weight: 800; font-size: clamp(17px, 5vw, 20px); cursor: pointer;
+    padding: 0 4px; white-space: nowrap; /* "Rebook (12)" stays on one line */
     touch-action: manipulation;
   }
   .tab[aria-current="page"] { background: #fff; color: var(--ink); }
