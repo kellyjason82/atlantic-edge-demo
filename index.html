@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en-IE">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0b0b">
+<meta name="robots" content="noindex">
+<title>Atlantic Edge – Alpha</title>
+<style>
+  /* Light, high-contrast theme: readable in bright sunlight. */
+  :root {
+    --bg: #ffffff;
+    --ink: #0b0b0b;
+    --soft: #f1f1f1;
+    --sea: #003f8a;
+    --red: #b00020;
+    --red-bg: #ffe3e6;
+    --amber: #6b3900;
+    --amber-bg: #ffd98a;
+    --ok: #0b6b2e;
+    --ok-bg: #dff3e5;
+    --sample: #ffd500;
+    --tap: 64px;      /* minimum height of anything you tap */
+    --tabbar: 84px;   /* height of the bottom tab bar */
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font: 20px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    /* Leave room so content is never hidden behind the tab bar. */
+    padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 16px);
+  }
+  button { font: inherit; color: inherit; }
+
+  /* Top strip: always says ALPHA and SAMPLE DATA. */
+  .topbar {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    padding: 10px 16px; background: var(--ink); color: #fff;
+  }
+  .topbar h1 { font-size: 20px; margin: 0; flex: 1 1 auto; }
+  .badge {
+    font-weight: 800; font-size: 16px; letter-spacing: .06em;
+    padding: 6px 10px; border-radius: 6px; white-space: nowrap;
+  }
+  .badge-alpha  { background: #fff; color: var(--ink); }
+  .badge-sample { background: var(--sample); color: var(--ink); }
+
+  main { padding: 16px; max-width: 640px; margin: 0 auto; }
+  .view[hidden] { display: none; }
+  .view h2 { font-size: 30px; margin: 4px 0 4px; }
+  .lead { margin: 0 0 16px; font-weight: 600; }
+  .note { font-size: 18px; margin: 16px 0; }
+
+  /* Buttons: big, full width, thick border. */
+  .btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; min-height: var(--tap); padding: 12px 16px;
+    border: 3px solid var(--ink); border-radius: 12px;
+    background: var(--bg); color: var(--ink);
+    font-weight: 800; font-size: 22px; text-align: center;
+    text-decoration: none; cursor: pointer;
+    touch-action: manipulation; /* no double-tap zoom delay */
+  }
+  .btn:active { transform: translateY(2px); }
+  .btn:focus-visible, .tab:focus-visible { outline: 4px solid var(--sample); outline-offset: 2px; }
+  .btn-danger  { background: var(--red); border-color: var(--red); color: #fff; }
+  .btn-primary { background: var(--sea); border-color: var(--sea); color: #fff; }
+  .btn-big { min-height: 84px; font-size: 24px; }
+
+  /* Bottom tab bar: three plain-text tabs in thumb reach. */
+  .tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    background: var(--ink);
+  }
+  .tab {
+    min-height: calc(var(--tabbar) - 12px);
+    border: 0; border-radius: 10px; background: #2b2b2b; color: #fff;
+    font-weight: 800; font-size: 20px; cursor: pointer;
+    touch-action: manipulation;
+  }
+  .tab[aria-current="page"] { background: #fff; color: var(--ink); }
+
+  /* Confirm sheet: slides up from the bottom, covers the tab bar. */
+  .sheet-backdrop {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; align-items: flex-end;
+    background: rgba(0, 0, 0, .65);
+  }
+  .sheet-backdrop[hidden] { display: none; }
+  .sheet {
+    width: 100%; max-width: 640px; margin: 0 auto;
+    display: grid; gap: 12px;
+    padding: 20px 16px calc(16px + env(safe-area-inset-bottom));
+    background: var(--bg); border-radius: 20px 20px 0 0;
+  }
+  .sheet h3 { font-size: 26px; margin: 0; }
+  .sheet p  { margin: 0 0 8px; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Atlantic Edge</h1>
+  <span class="badge badge-alpha">ALPHA</span>
+  <span class="badge badge-sample">SAMPLE DATA</span>
+</header>
+
+<main>
+  <section class="view" id="view-today" aria-labelledby="h-today">
+    <h2 id="h-today">Today</h2>
+    <div id="today-body"></div>
+  </section>
+
+  <section class="view" id="view-rebook" aria-labelledby="h-rebook" hidden>
+    <h2 id="h-rebook">Rebook</h2>
+    <div id="rebook-body"></div>
+  </section>
+
+  <section class="view" id="view-money" aria-labelledby="h-money" hidden>
+    <h2 id="h-money">Money</h2>
+    <div id="money-body"></div>
+    <p class="note">This is an alpha. Every name and number is SAMPLE DATA.</p>
+    <button class="btn" type="button" data-action="reset">Reset demo data</button>
+  </section>
+</main>
+
+<nav class="tabbar" aria-label="Views">
+  <button class="tab" type="button" data-action="tab" data-view="today" id="tab-today">Today</button>
+  <button class="tab" type="button" data-action="tab" data-view="rebook" id="tab-rebook">Rebook</button>
+  <button class="tab" type="button" data-action="tab" data-view="money" id="tab-money">Money</button>
+</nav>
+
+<div class="sheet-backdrop" id="sheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <h3 id="sheet-title"></h3>
+    <p id="sheet-text"></p>
+    <button class="btn btn-big" type="button" data-action="sheet-keep" id="sheet-keep">No, go back</button>
+    <button class="btn btn-big btn-danger" type="button" data-action="sheet-confirm" id="sheet-confirm"></button>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   1. Constants
+   ============================================================ */
+const STORE_KEY = "atlanticEdge.alpha.v1";
+const VERSION   = 1;
+const PRICE     = 45;   // € per person per lesson
+const CAPACITY  = 12;   // people per session
+const SLOTS     = ["09:00", "10:30", "12:00", "13:30", "15:00", "16:30"];
+const HOUR      = 3600 * 1000;
+const AMBER_HOURS = 24; // our assumption, not in the case
+const RED_HOURS   = 48; // from the case
+
+/* ============================================================
+   2. Date helpers (all in the phone's local time)
+   ============================================================ */
+function pad(n) { return String(n).padStart(2, "0"); }
+function dateKey(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+function makeSessionId(date, time) { return date + "_" + time.replace(":", ""); }
+function sessionStart(s) {
+  const [y, m, d] = s.date.split("-").map(Number);
+  const [h, mi]   = s.time.split(":").map(Number);
+  return new Date(y, m - 1, d, h, mi);
+}
+
+/* ============================================================
+   3. Sample data – all invented, rebuilt relative to today
+   ============================================================ */
+const NAMES = [
+  "Sandy Shoreline", "Barry Breaker", "Coral Reefe", "Finn Wavecrest", "Marina Tidewell",
+  "Rocky Pebbleton", "Shelly Seashore", "Gale Windward", "Brook Rippleton", "Kelpie O'Sea",
+  "Dune Sandford", "Misty Spraywell", "Pearl Oysterby", "Neptune Byrne", "Surfy McSurface",
+  "Aoife Seaspray", "Ciarán Rockpool", "Saoirse Swell", "Oisín Undertow", "Niall Northwind",
+  "Róisín Riptide", "Cillian Crest", "Gráinne Gull", "Darragh Driftwood", "Méabh Mackerel",
+  "Tadhg Tidepool", "Clodagh Current", "Fiachra Foam", "Éabha Estuary", "Ruairí Reef",
+  "Sorcha Seafoam", "Pádraig Puffin", "Orla Oceanby", "Diarmuid Dolphin", "Nóra Nautical",
+  "Colm Cormorant", "Siobhán Sandbar", "Eoin Ebbtide", "Fionnuala Fathom", "Seán Shingle",
+  "Áine Anchor", "Liam Lighthouse", "Bríd Barnacle", "Cathal Cove", "Úna Wetsuit"
+];
+
+// Sessions already cancelled when the demo opens, so amber and red show at once.
+// hoursAgo = when it was cancelled; slot = index into SLOTS on that day.
+const SEED_CANCELLED = [
+  { hoursAgo: 60, slot: 1, sizes: [4, 2] }, // over 48h  -> red
+  { hoursAgo: 30, slot: 2, sizes: [3, 1] }, // over 24h  -> amber
+  { hoursAgo: 2,  slot: 5, sizes: [2] }     // just now  -> normal
+];
+
+// Ordinary bookings: [days from today, slot index, group size].
+// Some sessions are nearly full so the "room left" rule visibly skips them.
+const SEED_BOOKINGS = [
+  [0,0,4],[0,0,2], [0,1,6],[0,1,3],[0,1,2], [0,2,5],[0,2,3], [0,3,6],[0,3,4],[0,3,2], [0,4,5],[0,4,4],
+  [1,0,6],[1,0,4], [1,1,5],[1,1,4], [1,2,6],[1,2,6], [1,3,3],[1,3,2], [1,4,6],[1,4,5], [1,5,2],
+  [2,0,6],[2,0,6], [2,1,4],[2,1,3],[2,1,2], [2,2,2], [2,4,6],[2,4,3],
+  [3,1,5],[3,1,5], [3,3,3],
+  [5,0,4], [5,2,2],[5,2,1],
+  [8,1,6],
+  [12,4,3],[12,4,3]
+];
+
+function buildSeed(now) {
+  // Sessions from 3 days ago (for the old cancellations) to 13 days ahead.
+  const sessions = [];
+  for (let d = -3; d <= 13; d++) {
+    const date = dateKey(addDays(now, d));
+    SLOTS.forEach(time => sessions.push({
+      id: makeSessionId(date, time), date, time,
+      capacity: CAPACITY, cancelled: false, cancelledAt: null
+    }));
+  }
+
+  const bookings = [];
+  function add(sessionId, size, extra) {
+    const i = bookings.length;
+    bookings.push(Object.assign({
+      id: "b" + pad(i + 1),
+      name: NAMES[i],
+      phone: "087 000 " + String(i + 1).padStart(4, "0"),
+      size, sessionId,
+      status: "booked",      // "booked" or "toRebook"
+      cancelledAt: null,     // when its session was cancelled
+      fromSessionId: null    // the session it was cancelled from
+    }, extra || {}));
+  }
+
+  SEED_CANCELLED.forEach(c => {
+    const at = new Date(now.getTime() - c.hoursAgo * HOUR);
+    const s  = sessions.find(x => x.id === makeSessionId(dateKey(at), SLOTS[c.slot]));
+    s.cancelled = true;
+    s.cancelledAt = at.toISOString();
+    c.sizes.forEach(size => add(s.id, size, {
+      status: "toRebook", cancelledAt: s.cancelledAt, fromSessionId: s.id
+    }));
+  });
+
+  SEED_BOOKINGS.forEach(([d, slot, size]) =>
+    add(makeSessionId(dateKey(addDays(now, d)), SLOTS[slot]), size));
+
+  return { version: VERSION, seededAt: now.toISOString(), sessions, bookings };
+}
+
+/* ============================================================
+   4. Case rules (no screen code here)
+   ============================================================ */
+function findSession(st, id) { return st.sessions.find(s => s.id === id); }
+
+function bookedOn(st, sessionId) {
+  return st.bookings.filter(b => b.status === "booked" && b.sessionId === sessionId);
+}
+
+// Room left: capacity minus everyone booked on it.
+function freePlaces(st, s) {
+  return s.capacity - bookedOn(st, s.id).reduce((t, b) => t + b.size, 0);
+}
+
+// Next sessions that haven't started, aren't cancelled and fit the whole group.
+function suggestions(st, booking, now, limit = 3) {
+  return st.sessions
+    .filter(s => !s.cancelled && sessionStart(s) > now && freePlaces(st, s) >= booking.size)
+    .sort((a, b) => sessionStart(a) - sessionStart(b))
+    .slice(0, limit);
+}
+
+function waiting(st) {
+  return st.bookings
+    .filter(b => b.status === "toRebook")
+    .sort((a, b) => new Date(a.cancelledAt) - new Date(b.cancelledAt)); // oldest first
+}
+
+function hoursWaiting(b, now) { return (now - new Date(b.cancelledAt)) / HOUR; }
+
+// Red after 48h (case rule), amber after 24h (our assumption).
+function ageFlag(b, now) {
+  const h = hoursWaiting(b, now);
+  return h >= RED_HOURS ? "red" : h >= AMBER_HOURS ? "amber" : "new";
+}
+
+function peopleWaiting(st) { return waiting(st).reduce((t, b) => t + b.size, 0); }
+function valueAtRisk(st)   { return peopleWaiting(st) * PRICE; }
+
+// Cancel a session: every booking on it goes to the to-rebook list.
+function cancelSession(st, sessionId, now) {
+  const s = findSession(st, sessionId);
+  if (!s || s.cancelled) return;
+  s.cancelled = true;
+  s.cancelledAt = now.toISOString();
+  bookedOn(st, sessionId).forEach(b => {
+    b.status = "toRebook";
+    b.cancelledAt = s.cancelledAt;
+    b.fromSessionId = s.id;
+  });
+}
+
+// Move a waiting booking onto a session, only if the whole group still fits.
+function rebook(st, bookingId, sessionId, now) {
+  const b = st.bookings.find(x => x.id === bookingId);
+  const s = findSession(st, sessionId);
+  if (!b || !s || b.status !== "toRebook") return false;
+  if (s.cancelled || sessionStart(s) <= now || freePlaces(st, s) < b.size) return false;
+  b.sessionId = s.id;
+  b.status = "booked";
+  b.cancelledAt = null;
+  return true;
+}
+
+/* ============================================================
+   5. Saving (localStorage, so changes survive a refresh)
+   ============================================================ */
+function save(st) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(st)); } catch (e) { /* private mode: still works, just not saved */ }
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) {
+      const st = JSON.parse(raw);
+      if (st && st.version === VERSION && Array.isArray(st.sessions) && Array.isArray(st.bookings)) return st;
+    }
+  } catch (e) { /* fall through to fresh data */ }
+  const fresh = buildSeed(new Date());
+  save(fresh);
+  return fresh;
+}
+
+/* ============================================================
+   6. Screen
+   ============================================================ */
+const $ = id => document.getElementById(id);
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function euro(n) { return "€" + n.toLocaleString("en-IE"); }
+
+let state = load();
+let currentView = "today";
+
+function renderToday() {
+  const today = dateKey(new Date());
+  const count = state.sessions.filter(s => s.date === today).length;
+  $("today-body").innerHTML = `<p class="lead">${count} sessions today. (Session cards come in the next step.)</p>`;
+}
+
+function renderRebook() {
+  $("rebook-body").innerHTML = `<p class="lead">${waiting(state).length} bookings waiting. (Rebook cards come in a later step.)</p>`;
+}
+
+function renderMoney() {
+  $("money-body").innerHTML = `<p class="lead">${euro(valueAtRisk(state))} at risk. (Money view comes in a later step.)</p>`;
+}
+
+function render() {
+  ["today", "rebook", "money"].forEach(v => {
+    $("view-" + v).hidden = v !== currentView;
+    const tab = $("tab-" + v);
+    if (v === currentView) tab.setAttribute("aria-current", "page"); else tab.removeAttribute("aria-current");
+  });
+  $("tab-rebook").textContent = "Rebook (" + waiting(state).length + ")";
+  renderToday();
+  renderRebook();
+  renderMoney();
+}
+
+/* Confirm sheet: one big confirm button, one big way back. */
+let onConfirm = null;
+function openSheet(title, text, confirmLabel, action) {
+  $("sheet-title").textContent = title;
+  $("sheet-text").textContent = text;
+  $("sheet-confirm").textContent = confirmLabel;
+  onConfirm = action;
+  $("sheet").hidden = false;
+  $("sheet-keep").focus();
+}
+function closeSheet() {
+  $("sheet").hidden = true;
+  onConfirm = null;
+}
+
+/* One tap handler for every button. Plain taps only – no swipes or long-presses. */
+document.addEventListener("click", e => {
+  if (e.target === $("sheet")) { closeSheet(); return; } // tap outside the sheet = go back
+  const el = e.target.closest("[data-action]");
+  if (!el) return;
+  switch (el.dataset.action) {
+    case "tab":
+      currentView = el.dataset.view;
+      render();
+      window.scrollTo(0, 0);
+      break;
+    case "reset":
+      openSheet("Reset demo data?",
+        "All changes are undone and the sample data starts fresh from today.",
+        "Yes, reset demo data",
+        () => { state = buildSeed(new Date()); save(state); currentView = "today"; });
+      break;
+    case "sheet-keep":
+      closeSheet();
+      break;
+    case "sheet-confirm": {
+      const action = onConfirm;
+      closeSheet();
+      if (action) action();
+      render();
+      break;
+    }
+  }
+});
+
+render();
+</script>
+</body>
+</html>
