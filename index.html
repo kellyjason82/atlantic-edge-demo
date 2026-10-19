@@ -64,6 +64,7 @@
     text-decoration: none; cursor: pointer;
     touch-action: manipulation; /* no double-tap zoom delay */
   }
+  .btn[hidden] { display: none; }
   .btn:active { transform: translateY(2px); }
   .btn:focus-visible, .tab:focus-visible { outline: 4px solid var(--sample); outline-offset: 2px; }
   .btn-danger  { background: var(--red); border-color: var(--red); color: #fff; }
@@ -127,7 +128,11 @@
   .who { font-size: 26px; font-weight: 900; line-height: 1.2; }
   .chip-amber { background: var(--amber-bg); border-color: var(--amber); color: var(--amber); }
   .chip-new   { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
-  .move-label { margin: 4px 0 -4px; font-weight: 800; }
+  /* Clear gap + dashed line + heading between Call and the move buttons */
+  .move-label {
+    margin: 12px 0 -2px; padding-top: 18px; border-top: 3px dashed var(--ink);
+    font-size: 22px; font-weight: 900;
+  }
   .moves { display: grid; gap: 10px; }
   .legend { font-size: 18px; margin: 0 0 16px; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 10px; }
 
@@ -144,14 +149,17 @@
   .breakdown li:last-child { border-bottom: 0; }
   .reset-area { margin-top: 32px; padding-top: 16px; border-top: 3px dashed var(--ink); }
 
-  /* Message after a move, shown just above the tab bar */
+  /* Message after a move, shown just above the tab bar, with a big Undo.
+     It catches taps itself, so a tap on it never falls through to a button below. */
   .toast {
     position: fixed; left: 12px; right: 12px; z-index: 15;
     bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 10px);
     max-width: 616px; margin: 0 auto; padding: 14px 16px;
+    display: grid; gap: 10px;
     background: var(--ok); color: #fff; font-weight: 800; border-radius: 12px;
-    pointer-events: none; /* never blocks a tap underneath */
+    box-shadow: 0 4px 0 rgba(0,0,0,.35);
   }
+  .toast .btn { background: #fff; border-color: #fff; color: var(--ink); }
   .toast[hidden] { display: none; }
 
   /* Demo aid banner – clearly not part of the app */
@@ -196,7 +204,10 @@
   <button class="tab" type="button" data-action="tab" data-view="money" id="tab-money">Money</button>
 </nav>
 
-<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden>
+  <span id="toast-text"></span>
+  <button class="btn" type="button" data-action="undo" id="toast-undo">Undo</button>
+</div>
 
 <div class="sheet-backdrop" id="sheet" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
@@ -389,6 +400,40 @@ function rebook(st, bookingId, sessionId, now) {
   return true;
 }
 
+// Undo a move: the booking goes back on the Rebook list with its
+// original cancellation time (so red/amber stay true).
+// `move` = { bookingId, toSessionId, prevSessionId, prevCancelledAt }.
+function undoRebook(st, move) {
+  const b = st.bookings.find(x => x.id === move.bookingId);
+  if (!b || b.status !== "booked" || b.sessionId !== move.toSessionId) return false;
+  b.status = "toRebook";
+  b.sessionId = move.prevSessionId;
+  b.cancelledAt = move.prevCancelledAt;
+  return true;
+}
+
+// A cancelled session can be restored if it hasn't started and none of
+// its bookings have been moved to another session yet.
+function canRestore(st, sessionId, now) {
+  const s = findSession(st, sessionId);
+  if (!s || !s.cancelled || sessionStart(s) <= now) return false;
+  return !st.bookings.some(b => b.fromSessionId === s.id && b.status !== "toRebook");
+}
+
+function restoreSession(st, sessionId, now) {
+  if (!canRestore(st, sessionId, now)) return false;
+  const s = findSession(st, sessionId);
+  s.cancelled = false;
+  s.cancelledAt = null;
+  st.bookings.filter(b => b.fromSessionId === s.id).forEach(b => {
+    b.status = "booked";
+    b.sessionId = s.id;
+    b.cancelledAt = null;
+    b.fromSessionId = null;
+  });
+  return true;
+}
+
 /* ============================================================
    5. Saving (localStorage, so changes survive a refresh)
    ============================================================ */
@@ -436,7 +481,10 @@ function sessionCard(s, now) {
     const moved = state.bookings.filter(b => b.fromSessionId === s.id).length;
     status = `<span class="chip chip-red">CANCELLED</span>`;
     body   = `<p class="card-text">Cancelled at ${fmtTime(s.cancelledAt)}. ${plural(moved, "booking", "bookings")} sent to Rebook.</p>`;
-    action = `<button class="btn" type="button" data-action="tab" data-view="rebook">Go to Rebook</button>`;
+    action = `<button class="btn" type="button" data-action="tab" data-view="rebook">Go to Rebook</button>` +
+      (canRestore(state, s.id, now)
+        ? `<button class="btn" type="button" data-action="restore" data-session="${s.id}">Restore session</button>`
+        : "");
   } else {
     status = `<span class="chip">${sumSizes(people)} / ${s.capacity} booked</span>`;
     body = people.length
@@ -519,13 +567,20 @@ function renderRebook() {
     list.map(b => rebookCard(b, now)).join("");
 }
 
+// The last move, kept for 10 seconds so it can be undone.
+let lastMove = null;
 let toastTimer = null;
-function showToast(text) {
-  const t = $("toast");
-  t.textContent = text;
-  t.hidden = false;
+function hideToast() {
+  $("toast").hidden = true;
+  lastMove = null;
+}
+function showToast(text, move) {
+  $("toast-text").textContent = text;
+  $("toast-undo").hidden = !move;
+  lastMove = move || null;
+  $("toast").hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
+  toastTimer = setTimeout(hideToast, move ? 10000 : 4000);
 }
 
 function renderMoney() {
@@ -565,10 +620,12 @@ function render() {
 
 /* Confirm sheet: one big confirm button, one big way back. */
 let onConfirm = null;
-function openSheet(title, text, confirmLabel, action, keepLabel) {
+function openSheet(title, text, confirmLabel, action, keepLabel, confirmClass) {
   $("sheet-title").textContent = title;
   $("sheet-text").textContent = text;
   $("sheet-confirm").textContent = confirmLabel;
+  // Red for cancel/reset; blue for restore (a safe, positive action).
+  $("sheet-confirm").className = "btn btn-big " + (confirmClass || "btn-danger");
   $("sheet-keep").textContent = keepLabel || "No, go back";
   onConfirm = action;
   $("sheet").hidden = false;
@@ -607,20 +664,49 @@ document.addEventListener("click", e => {
     case "move": {
       const b = state.bookings.find(x => x.id === el.dataset.booking);
       const s = findSession(state, el.dataset.session);
+      const move = b && { bookingId: b.id, toSessionId: el.dataset.session,
+                          prevSessionId: b.sessionId, prevCancelledAt: b.cancelledAt };
       if (b && s && rebook(state, b.id, s.id, new Date())) {
         save(state);
-        showToast("Moved " + b.name + " (" + plural(b.size, "person", "people") + ") to " + fmtSlot(s));
+        showToast("Moved " + b.name + " (" + plural(b.size, "person", "people") + ") to " + fmtSlot(s), move);
       } else {
         showToast("That session no longer has room. Pick another.");
       }
       render();
       break;
     }
+    case "undo": {
+      const move = lastMove;
+      const b = move && state.bookings.find(x => x.id === move.bookingId);
+      if (move && undoRebook(state, move)) {
+        save(state);
+        showToast("Undone: " + b.name + " is back on the Rebook list.");
+      } else {
+        showToast("Can't undo that move any more.");
+      }
+      render();
+      break;
+    }
+    case "restore": {
+      const s = findSession(state, el.dataset.session);
+      if (!s || !canRestore(state, s.id, new Date())) break;
+      const list = state.bookings.filter(b => b.fromSessionId === s.id);
+      openSheet(
+        "Restore the " + s.time + " session?",
+        fmtDay(s.date) + ". " + (list.length
+          ? plural(list.length, "booking", "bookings") + " (" + plural(sumSizes(list), "person", "people") + ") go back on it and leave the Rebook list."
+          : "It will be back on, with no bookings."),
+        "Yes, restore " + s.time,
+        () => { restoreSession(state, s.id, new Date()); save(state); },
+        "No, keep it cancelled",
+        "btn-primary");
+      break;
+    }
     case "reset":
       openSheet("Reset demo data?",
         "All changes are undone and the sample data starts fresh from today.",
         "Yes, reset demo data",
-        () => { state = buildSeed(new Date()); save(state); currentView = "today"; });
+        () => { state = buildSeed(new Date()); save(state); currentView = "today"; hideToast(); });
       break;
     case "sheet-keep":
       closeSheet();
