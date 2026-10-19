@@ -70,6 +70,12 @@
   .btn-danger  { background: var(--red); border-color: var(--red); color: #fff; }
   .btn-primary { background: var(--sea); border-color: var(--sea); color: #fff; }
   .btn-big { min-height: 84px; font-size: 24px; }
+  /* Call comes first, so it is the strongest button on a Rebook card:
+     solid green, white bold text (about 7:1 contrast), taller than the move buttons. */
+  .btn-call {
+    min-height: 88px; font-size: 24px; font-weight: 900;
+    background: var(--ok); border-color: var(--ok); color: #fff;
+  }
 
   /* Bottom tab bar: three plain-text tabs in thumb reach. */
   .tabbar {
@@ -134,6 +140,8 @@
     font-size: 22px; font-weight: 900;
   }
   .moves { display: grid; gap: 10px; }
+  /* Slightly smaller text so even a two-line move button (86px) stays shorter than Call (88px) */
+  .moves .btn { font-size: 20px; }
   .legend { font-size: 18px; margin: 0 0 16px; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 10px; }
 
   /* Money: big numbers you can read at arm's length */
@@ -547,7 +555,7 @@ function rebookCard(b, now) {
   return `<article class="card${flag === "new" ? "" : " card-" + flag}">
     <div class="card-head"><span class="who">${esc(b.name)}</span>${FLAG_CHIP[flag]}</div>
     <p class="card-text">Group of ${b.size}${from ? " · was " + esc(fmtSlot(from)) : ""}<br>Waiting ${fmtWait(hoursWaiting(b, now))}</p>
-    <a class="btn" href="tel:${b.phone.replace(/\s/g, "")}">Call ${esc(b.phone)}</a>
+    <a class="btn btn-call" href="tel:${b.phone.replace(/\s/g, "")}">Call ${esc(b.phone)}</a>
     ${moves}</article>`;
 }
 
