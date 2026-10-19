@@ -100,6 +100,31 @@
   }
   .sheet h3 { font-size: 26px; margin: 0; }
   .sheet p  { margin: 0 0 8px; }
+
+  /* Session cards (Today) */
+  .card {
+    display: grid; gap: 12px; margin: 0 0 14px; padding: 14px;
+    border: 3px solid var(--ink); border-radius: 14px; background: var(--bg);
+  }
+  .card-cancelled { background: var(--soft); border-style: dashed; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  .time { font-size: 36px; font-weight: 900; line-height: 1; }
+  .chip {
+    font-weight: 800; font-size: 18px; white-space: nowrap;
+    padding: 6px 12px; border: 2px solid var(--ink); border-radius: 999px;
+  }
+  .chip-red { background: var(--red); border-color: var(--red); color: #fff; }
+  .names { list-style: none; margin: 0; padding: 0; }
+  .names li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid #9a9a9a; }
+  .names li:last-child { border-bottom: 0; }
+  .size { font-weight: 700; white-space: nowrap; }
+  .card-text { margin: 0; font-weight: 600; }
+
+  /* Demo aid banner – clearly not part of the app */
+  .demo-banner {
+    display: grid; gap: 4px; margin: 0 0 16px; padding: 12px 14px;
+    background: var(--sample); border: 3px solid var(--ink); border-radius: 12px;
+  }
 </style>
 </head>
 <body>
@@ -300,6 +325,20 @@ function cancelSession(st, sessionId, now) {
   });
 }
 
+// Which day the Today view shows. Demo aid: once every lesson today has
+// started, show tomorrow instead, so the demo always has something to cancel.
+function todayViewDay(st, now) {
+  const today  = dateKey(now);
+  const todays = st.sessions.filter(s => s.date === today);
+  const over   = todays.length > 0 && todays.every(s => sessionStart(s) <= now);
+  const date   = over ? dateKey(addDays(now, 1)) : today;
+  return {
+    date,
+    demoTomorrow: over,
+    sessions: st.sessions.filter(s => s.date === date).sort((a, b) => sessionStart(a) - sessionStart(b))
+  };
+}
+
 // Move a waiting booking onto a session, only if the whole group still fits.
 function rebook(st, bookingId, sessionId, now) {
   const b = st.bookings.find(x => x.id === bookingId);
@@ -344,10 +383,54 @@ function euro(n) { return "€" + n.toLocaleString("en-IE"); }
 let state = load();
 let currentView = "today";
 
+function fmtDay(date) {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-IE", { weekday: "long", day: "numeric", month: "long" });
+}
+function fmtTime(iso) { const d = new Date(iso); return pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+function sumSizes(list) { return list.reduce((t, b) => t + b.size, 0); }
+
+function sessionCard(s, now) {
+  const people = bookedOn(state, s.id);
+  let status, body, action;
+  if (s.cancelled) {
+    const moved = state.bookings.filter(b => b.fromSessionId === s.id).length;
+    status = `<span class="chip chip-red">CANCELLED</span>`;
+    body   = `<p class="card-text">Cancelled at ${fmtTime(s.cancelledAt)}. ${plural(moved, "booking", "bookings")} sent to Rebook.</p>`;
+    action = `<button class="btn" type="button" data-action="tab" data-view="rebook">Go to Rebook</button>`;
+  } else {
+    status = `<span class="chip">${sumSizes(people)} / ${s.capacity} booked</span>`;
+    body = people.length
+      ? `<ul class="names">${people.map(b =>
+          `<li><span>${esc(b.name)}</span><span class="size">${plural(b.size, "person", "people")}</span></li>`).join("")}</ul>`
+      : `<p class="card-text">No bookings yet.</p>`;
+    action = sessionStart(s) <= now
+      ? `<p class="card-text">Started – can't be cancelled now.</p>`
+      : `<button class="btn btn-danger" type="button" data-action="cancel" data-session="${s.id}">Cancel ${s.time} session</button>`;
+  }
+  return `<article class="card${s.cancelled ? " card-cancelled" : ""}">
+    <div class="card-head"><span class="time">${s.time}</span>${status}</div>${body}${action}</article>`;
+}
+
 function renderToday() {
-  const today = dateKey(new Date());
-  const count = state.sessions.filter(s => s.date === today).length;
-  $("today-body").innerHTML = `<p class="lead">${count} sessions today. (Session cards come in the next step.)</p>`;
+  const now = new Date();
+  const { date, demoTomorrow, sessions } = todayViewDay(state, now);
+  let html = "";
+  if (demoTomorrow) {
+    html += `<div class="demo-banner" role="note">
+      <strong>Demo: today's lessons are over, showing tomorrow</strong>
+      <span>Demo aid only – not part of the app.</span></div>`;
+  }
+  if (!sessions.length) {
+    html += `<p class="lead">The sample data is out of date for today.</p>
+      <button class="btn btn-primary" type="button" data-action="reset">Reset demo data</button>`;
+  } else {
+    const on = sessions.filter(s => !s.cancelled).length;
+    html += `<p class="lead">${esc(fmtDay(date))} · ${on} of ${sessions.length} sessions on</p>`;
+    html += sessions.map(s => sessionCard(s, now)).join("");
+  }
+  $("today-body").innerHTML = html;
 }
 
 function renderRebook() {
@@ -372,10 +455,11 @@ function render() {
 
 /* Confirm sheet: one big confirm button, one big way back. */
 let onConfirm = null;
-function openSheet(title, text, confirmLabel, action) {
+function openSheet(title, text, confirmLabel, action, keepLabel) {
   $("sheet-title").textContent = title;
   $("sheet-text").textContent = text;
   $("sheet-confirm").textContent = confirmLabel;
+  $("sheet-keep").textContent = keepLabel || "No, go back";
   onConfirm = action;
   $("sheet").hidden = false;
   $("sheet-keep").focus();
@@ -396,6 +480,20 @@ document.addEventListener("click", e => {
       render();
       window.scrollTo(0, 0);
       break;
+    case "cancel": {
+      const s = findSession(state, el.dataset.session);
+      if (!s || s.cancelled) break;
+      const list = bookedOn(state, s.id);
+      openSheet(
+        "Cancel the " + s.time + " session?",
+        fmtDay(s.date) + ". " + (list.length
+          ? plural(list.length, "booking", "bookings") + " (" + plural(sumSizes(list), "person", "people") + ") will move to the Rebook list."
+          : "No one is booked on it."),
+        "Yes, cancel " + s.time,
+        () => { cancelSession(state, s.id, new Date()); save(state); },
+        "No, keep the session");
+      break;
+    }
     case "reset":
       openSheet("Reset demo data?",
         "All changes are undone and the sample data starts fresh from today.",
