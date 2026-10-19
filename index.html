@@ -130,6 +130,19 @@
   .moves { display: grid; gap: 10px; }
   .legend { font-size: 18px; margin: 0 0 16px; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 10px; }
 
+  /* Money: big numbers you can read at arm's length */
+  .stat { margin: 0 0 14px; padding: 16px; border: 3px solid var(--ink); border-radius: 14px; }
+  .stat-big { background: var(--ink); color: #fff; }
+  .stat .num { display: block; font-size: 44px; font-weight: 900; line-height: 1.05; }
+  .stat-big .num { font-size: 60px; }
+  .stat .lbl { display: block; font-size: 20px; font-weight: 700; }
+  .stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .stat-row .stat { margin: 0; }
+  .breakdown { list-style: none; margin: 14px 0; padding: 0; border: 3px solid var(--ink); border-radius: 14px; }
+  .breakdown li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #9a9a9a; font-weight: 700; }
+  .breakdown li:last-child { border-bottom: 0; }
+  .reset-area { margin-top: 32px; padding-top: 16px; border-top: 3px dashed var(--ink); }
+
   /* Message after a move, shown just above the tab bar */
   .toast {
     position: fixed; left: 12px; right: 12px; z-index: 15;
@@ -169,8 +182,10 @@
   <section class="view" id="view-money" aria-labelledby="h-money" hidden>
     <h2 id="h-money">Money</h2>
     <div id="money-body"></div>
-    <p class="note">This is an alpha. Every name and number is SAMPLE DATA.</p>
-    <button class="btn" type="button" data-action="reset">Reset demo data</button>
+    <div class="reset-area">
+      <p class="note">This is an alpha. Every name and number is SAMPLE DATA.</p>
+      <button class="btn" type="button" data-action="reset">Reset demo data</button>
+    </div>
   </section>
 </main>
 
@@ -513,7 +528,26 @@ function showToast(text) {
 }
 
 function renderMoney() {
-  $("money-body").innerHTML = `<p class="lead">${euro(valueAtRisk(state))} at risk. (Money view comes in a later step.)</p>`;
+  const now = new Date();
+  const list = waiting(state);
+  const people = peopleWaiting(state);
+  const byFlag = f => list.filter(b => ageFlag(b, now) === f);
+  const row = f => {
+    const l = byFlag(f);
+    return `<li>${FLAG_CHIP[f]}<span>${plural(l.length, "booking", "bookings")} · ${euro(sumSizes(l) * PRICE)}</span></li>`;
+  };
+  $("money-body").innerHTML = `
+    <div class="stat stat-big">
+      <span class="num">${euro(valueAtRisk(state))}</span>
+      <span class="lbl">at risk · ${plural(people, "person", "people")} × ${euro(PRICE)}</span>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><span class="num">${list.length}</span><span class="lbl">${list.length === 1 ? "booking" : "bookings"} waiting</span></div>
+      <div class="stat"><span class="num">${people}</span><span class="lbl">${people === 1 ? "person" : "people"} waiting</span></div>
+    </div>
+    ${list.length ? `<ul class="breakdown">${row("red")}${row("amber")}${row("new")}</ul>
+      <button class="btn btn-primary btn-big" type="button" data-action="tab" data-view="rebook">Go to Rebook (${list.length})</button>`
+      : `<p class="lead">Nothing waiting to be rebooked.</p>`}`;
 }
 
 function render() {
